@@ -1,0 +1,383 @@
+#! /usr/bin/env perl
+##############################################################################
+# $Id: HMMtrain-dspbee, v.0.1 2019/7/10 $
+#
+# bee swarm/normal audio training procedure, based on HLT ASR Masper
+# and refrec script.
+#
+# Acoustic models: 1-state HMM or 15-state HMM
+#
+##############################################################################
+
+# Define some useful constants first...
+
+use locale;
+
+# Input defined by the user: label mlf file, train set scp file; both in HTK format"
+
+$wordsmlf = "labels.mlf";
+$trnscp  = "trainset.scp";
+
+
+
+$d = "config";      # input data files, part of installation
+$t = "tools";    # sub-scripts, part of installation
+
+$w = "workdir";     # directory for generated index files, edit scripts, etc.
+$m = "models";      # output HMM directory
+$m0 = "$m/mmm0";    # output HMM directory
+$m1 = "$m/mmm1";    # output HMM directory
+$m2 = "$m/mmm2";    # output HMM directory
+$lg = "$w/log";     # log file directory
+$lexicon = "$d/beesw.dic";
+
+
+$|=1;               # flush output buffers in batch mode
+
+# Check/create subdirectories...
+
+foreach $tmp ($t,$d) {die "Directory $tmp not found\n" unless (-d $tmp);}
+$ENV{'PATH'} = "./$t".":".$ENV{'PATH'}; # put tools directory first in path
+require("$t/common.pl"); # load common subroutine library
+foreach $tmp ($w,$m,$m0,$m1,$m2,$lg) {&makedir($tmp);} # output/working directories
+
+
+# Then we are ready to start processing...
+
+print "HMMtrain-dspbee started ",`date`,"\n";
+
+goto skip;       # restart the script by moving the skip label to the
+                 # point where it stopped
+skip:            # start processing again here
+
+
+
+##############################################################################
+#
+# lexical processing
+#
+##############################################################################
+
+print " ...performing mapping:\n";
+&run ("DictMapPhone $d/phone.map $lexicon > $w/mapped.dic");
+print `wc $w/mapped.dic`;
+
+print " ...converting symbols to HTK:\n";
+&run ("DictHtk2sampa $w/mapped.dic > $w/htk.dic");
+print `wc $w/htk.dic`;
+
+print " ...creating list of labels used in dictionary:\n";
+&run ("ListPhonemes $w/htk.dic > $w/dict.lis");
+print `wc $w/dict.lis`;
+
+print " ...adding silence and tee models:\n";
+&run ("aspkfil $w/htk.dic > $w/htktee.dic");
+print `wc $w/htktee.dic`;
+print "\n";
+
+
+print "Preprocessing transcriptions\n";
+#--------------------------------------
+
+print " ...expanding MLF:\n";
+&printfile ("$w/words2phones0.led","EX\n");
+&appendfile ("$w/words2phones0.led","IS sil sil\n");
+&appendfile ("$w/words2phones0.led","DE sp\n");
+&run ("HLEd -l '*' -d $w/htktee.dic -i $w/phones0.mlf -n $w/phones0.lis ".
+      "$w/words2phones0.led $wordsmlf");
+print `wc $w/phones0.lis`;
+
+&printfile ("$w/words2phones.led","EX\n");
+&appendfile ("$w/words2phones.led","IS sil sil\n");
+&run ("HLEd -l '*' -d $w/htktee.dic -i $w/phones.mlf -n $w/phones.lis ".
+      "$w/words2phones.led $wordsmlf");
+print `wc $w/phones.lis`;
+print "\n";
+
+
+##############################################################################
+#
+# HMM Training
+#
+##############################################################################
+
+print "Generating flat start prototypes ".`date`;
+#------------------------------------------------
+
+print " ...selecting subcorpus for bootstrap training\n";
+
+&run("Randomize $trnscp | head -7500 > $w/bootset.scp");
+
+$sourcehmm = "$d/proto.hmm";
+$targetdir = "$m/mini_1_0";
+print " ...computing global means and variances in $targetdir\n";
+&makedir ($targetdir);
+
+#Compute global means and variances on a maximum of 10000 sentences
+
+&run ("Randomize $w/bootset.scp | head -2500 > $w/bootmax.scp");
+
+$txts = `wc -l $w/bootset.scp`;
+chomp($txts);
+$txts .= " reduced to " . `wc -l $w/bootmax.scp`;
+print $txts;
+
+&run ("HCompV -C $d/reest.cfg -f 0.01 -m -S $w/bootmax.scp ".
+      "-M $targetdir $sourcehmm");
+
+$sourcedir = "$m/mini_1_0";
+$targethmm = "$m/mini_1_0/hmms0";
+print " ...cloning prototype into models in $targethmm\n";
+&run ("CloneProto $w/phones0.lis $sourcedir/proto > $targethmm");
+&run ("cat $sourcedir/vFloors >> $targethmm");
+print " ...finished ".`date`;
+print "\n";
+
+
+
+print "Training initial models ".`date`;
+#-------------------------------------------
+
+sub initreest1 {
+    local($sourcehmm,$targetdir) = @_;
+    print " ...reestimating to $targetdir\n";
+    &makedir ($targetdir);
+    &run ("HERest -C $d/reest.cfg -I $w/phones0.mlf -t 250.0 150.0 1000.0 ".
+	  "-S $w/bootset.scp -H $sourcehmm -M $targetdir $w/phones0.lis");
+    print " ...finished ".`date`;
+}
+
+&initreest1 ("$m/mini_1_0/hmms0","$m/mini_1_1");
+&initreest1 ("$m/mini_1_1/hmms0","$m/mini_1_2");
+&initreest1 ("$m/mini_1_2/hmms0","$m/mini_1_3");
+print "\n";
+
+
+print "Adding silence (tee) models ".`date`;
+#--------------------------------------------------------
+
+$sourcehmm = "$m/mini_1_3/hmms0";
+$targethmm = "$m/mini_1_3/hmms";
+print " ...adding tee model to $targethmm\n";
+&run ("AddTeeModel2 $sourcehmm > $targethmm");
+ 
+$sourcehmm = "$m/mini_1_3/hmms";
+$targethmm = "$m/mini_1_3/hmms.mmf";
+print " ...tying silence and tee models to $targethmm\n";
+&appendfile ("$w/sil.hed", "AT 1 3 0.3 {sp.transP}\n");
+&appendfile ("$w/sil.hed", "TI silst {sil.state[2],sp.state[2]}\n");
+&run ("HHEd -H $sourcehmm -w $targethmm $w/sil.hed $w/phones.lis");
+
+&run("ReEstimate $m/mini_1_3/hmms.mmf $m/mini_1_4.mmf $d/reest.cfg " . 
+     "$w/bootset.scp $w/phones.mlf lab $w/phones.lis $lg/mini_1_4.log");
+&run("ReEstimate $m/mini_1_4.mmf $m/mini_1_5.mmf $d/reest.cfg " . 
+     "$w/bootset.scp $w/phones.mlf lab $w/phones.lis $lg/mini_1_5.log");
+
+print "Improving transcriptions ".`date`;
+#----------------------------------------------------
+
+$sourcehmm = "$m/mini_1_5.mmf";
+print " ...realigning the training data using $sourcehmm\n";
+&run ("HVite -T 1 -l '*' -o SW -b '<sil>' -C $d/reest.cfg -a ".
+           "-H $sourcehmm -i $w/aligned.mlf -m -t 250.0 -I $wordsmlf ".
+           "-S $trnscp $w/htktee.dic $w/phones.lis > $w/align.log");
+print " ...finished ".`date`;
+
+print " ...detecting outliers that failed in alignment:\n";
+&run ("ListOutliers $w/align.log > $w/outliers.scp");
+print `wc $w/outliers.scp`;
+
+print " ...removing outliers from the training set:\n";
+&run ("RemoveLines $w/outliers.scp $trnscp > $w/train.scp");
+print `wc $w/train.scp`;
+
+&run("ReEstimate $m/mini_1_5.mmf $m/mini_1_6.mmf $d/reest.cfg " . 
+     "$w/train.scp $w/aligned.mlf rec $w/phones.lis $lg/mini_1_6.log");
+&run("ReEstimate $m/mini_1_6.mmf $m/mini_1_7.mmf $d/reest.cfg " . 
+     "$w/train.scp $w/aligned.mlf rec $w/phones.lis $lg/mini_1_7.log");
+
+print "Training mixture HMM models ".`date`;
+#-------------------------------------------
+
+&monomixup (2,"$m/mini_1_7.mmf","$m/mini_2_0.mmf");
+&run	("ReEstimate $m/mini_2_0.mmf $m/mini_2_1.mmf $d/reest.cfg " . 
+     	 "$w/train.scp $w/aligned.mlf rec $w/phones.lis $lg/mini_2_1.log");
+&run	("ReEstimate $m/mini_2_1.mmf $m/mini_2_2.mmf $d/reest.cfg " . 
+     	 "$w/train.scp $w/aligned.mlf rec $w/phones.lis $lg/mini_2_2.log");
+
+&monomixup (4,"$m/mini_2_2.mmf","$m/mini_4_0.mmf");
+&run	("ReEstimate $m/mini_4_0.mmf $m/mini_4_1.mmf $d/reest.cfg " . 
+     	 "$w/train.scp $w/aligned.mlf rec $w/phones.lis $lg/mini_4_1.log");
+&run	("ReEstimate $m/mini_4_1.mmf $m/mini_4_2.mmf $d/reest.cfg " . 
+     	 "$w/train.scp $w/aligned.mlf rec $w/phones.lis $lg/mini_4_2.log");
+
+&monomixup (8,"$m/mini_4_2.mmf","$m/mini_8_0.mmf");
+&run	("ReEstimate $m/mini_8_0.mmf $m/mini_8_1.mmf $d/reest.cfg " . 
+     	 "$w/train.scp $w/aligned.mlf rec $w/phones.lis $lg/mini_8_1.log");
+&run	("ReEstimate $m/mini_8_1.mmf $m/mini_8_2.mmf $d/reest.cfg " . 
+     	 "$w/train.scp $w/aligned.mlf rec $w/phones.lis $lg/mini_8_2.log");
+
+&monomixup (16,"$m/mini_8_2.mmf","$m/mini_16_0.mmf");
+&run	("ReEstimate $m/mini_16_0.mmf $m/mini_16_1.mmf $d/reest.cfg " . 
+     	 "$w/train.scp $w/aligned.mlf rec $w/phones.lis $lg/mini_16_1.log");
+&run	("ReEstimate $m/mini_16_1.mmf $m/mini_16_2.mmf $d/reest.cfg " . 
+     	 "$w/train.scp $w/aligned.mlf rec $w/phones.lis $lg/mini_16_2.log");
+
+#-------------------------------------------------------------
+# START RE-ALIGNMENT, USING BETTER MODELS (16-MIXTURE MODELS)
+#-------------------------------------------------------------
+
+$sourcehmm = "models/mini_16_2.mmf";
+print " ...realigning the training data using $sourcehmm\n";
+&run ("HVite -T 1 -l '*' -o SW -b '<sil>' -C $d/reest.cfg -a ".
+           "-H $sourcehmm -i $w/align_32_2.mlf -m -t 250.0 -I $wordsmlf ".
+           "-S $trnscp $w/htktee.dic $w/phones.lis > $w/align_32_2.log");
+print " ...finished ".`date`;
+
+print " ...detecting outlier sentences that failed in alignment:\n";
+&run ("ListOutliers $w/align_32_2.log > $w/outliers_32_2.scp");
+print `wc $w/outliers_32_2.scp`;
+
+print " ...removing outliers from the training set:\n";
+&run ("RemoveLines $w/outliers_32_2.scp $trnscp > $w/train_32_2.scp");
+print `wc $w/train_32_2.scp`;
+
+print " ...selecting subcorpus for bootstrap training\n";
+
+&run("Randomize $w/train_32_2.scp | head -7500 > $w/bootset_32_2.scp");
+
+#Generate prototype models to be used if labels not present in bootset
+
+print " Generating prototypes for second run\n";
+
+$phnf = "$w/phones0.lis";
+
+&run("GenProto $phnf $m/mini_1_0/proto $m0");
+&run("GenProto $phnf $m/mini_1_0/proto $m1");
+
+if (-f "$lg/HRest.log") {unlink("$lg/HRest.log")};
+if (-f "$lg/HInit.log") {unlink("$lg/HInit.log")};
+
+open(FILE,$phnf) || die "Could not open model file $phnf\n";
+while (<FILE>) {
+  chomp;
+  if ($_ ne "sil") {
+    &run("HInit -C $d/reest.cfg ".
+         "-S $w/train_32_2.scp -X rec -e 0.1 -I $w/align_32_2.mlf ".
+         "-M $m0 -l $_ -T 03 -o $_ $d/proto.hmm >>$lg/HInit.log");
+    &run("HRest -C $d/reest.cfg ".
+         "-S $w/train_32_2.scp -X rec -e 0.01 -I $w/align_32_2.mlf ".
+         "-M $m1 -l $_ -T 03 $m0/$_ >>$lg/HRest.log");
+  }
+  else
+  { 
+    &run ("Randomize $w/bootset_32_2.scp | head -500 >$w/sil_32_2.scp");
+    &run("HInit -C $d/reest.cfg ".
+         "-S $w/sil_32_2.scp -X rec -e 0.1 -I $w/align_32_2.mlf ".
+         "-M $m0 -l $_ -T 03 -o $_ $d/proto.hmm >>$lg/HInit.log");
+  
+    &run("HRest -C $d/reest.cfg ".
+         "-S $w/sil_32_2.scp -X rec -e 0.01 -I $w/align_32_2.mlf ".
+         "-M $m1 -l $_ -T 03 $m0/$_ >>$lg/HRest.log");
+  }
+}
+
+$targethmm = "$m2/hmm0";
+&run ("cat $m1/* >$targethmm");
+
+$sourcehmm = $targethmm;
+$targethmm = "$m2/hmm1";
+print " ...adding tee model to $targethmm\n";
+&run ("AddTeeModel2 $sourcehmm > $targethmm");
+&run ("cat $m/mini_1_0/vFloors >>$targethmm");
+
+$sourcehmm = $targethmm;
+$targethmm = "$m2/hmms.mmf";
+print " ...tying silence and tee models to $targethmm\n";
+
+&run ("HHEd -H $sourcehmm -w $targethmm $w/sil.hed $w/phones.lis");
+
+&run("ReEstimate $m2/hmms.mmf $m/mono_1_4.mmf $d/reest.cfg " . 
+     "$w/train_32_2.scp $w/align_32_2.mlf rec $w/phones.lis $lg/mono_1_4.log");
+&run("ReEstimate $m/mono_1_4.mmf $m/mono_1_5.mmf $d/reest.cfg " . 
+     "$w/train_32_2.scp $w/align_32_2.mlf rec $w/phones.lis $lg/mono_1_5.log");
+&run("ReEstimate $m/mono_1_5.mmf $m/mono_1_6.mmf $d/reest.cfg " . 
+     "$w/train_32_2.scp $w/align_32_2.mlf rec $w/phones.lis $lg/mono_1_6.log");
+&run("ReEstimate $m/mono_1_6.mmf $m/mono_1_7.mmf $d/reest.cfg " . 
+     "$w/train_32_2.scp $w/align_32_2.mlf rec $w/phones.lis $lg/mono_1_7.log");
+
+
+print "Re-Training mixture HMM models ".`date`;
+#-------------------------------------------
+
+&monomixup (2,"$m/mono_1_7.mmf","$m/mono_2_0.mmf");
+&run	("ReEstimate $m/mono_2_0.mmf $m/mono_2_1.mmf $d/reest.cfg " . 
+     	 "$w/train_32_2.scp $w/align_32_2.mlf rec $w/phones.lis $lg/mono_2_1.log");
+&run	("ReEstimateStateCount $m/mono_2_1.mmf $m/mono_2_2.mmf $d/reest.cfg " . 
+     	 "$w/train_32_2.scp $w/align_32_2.mlf rec $w/state_mono_2_2.cnt $w/phones.lis $lg/mono_2_2.log");
+&run	("ReEstimateStateCount $m/mono_2_2.mmf $m/mono_2_3.mmf $d/reest.cfg " . 
+     	 "$w/train_32_2.scp $w/align_32_2.mlf rec $w/state_mono_2_3.cnt $w/phones.lis $lg/mono_2_3.log");
+
+
+&monomixup (4,"$m/mono_2_3.mmf","$m/mono_4_0.mmf");
+&run	("ReEstimate $m/mono_4_0.mmf $m/mono_4_1.mmf $d/reest.cfg " . 
+     	 "$w/train_32_2.scp $w/align_32_2.mlf rec $w/phones.lis $lg/mono_4_1.log");
+&run	("ReEstimateStateCount $m/mono_4_1.mmf $m/mono_4_2.mmf $d/reest.cfg " . 
+     	 "$w/train_32_2.scp $w/align_32_2.mlf rec $w/state_mono_4_2.cnt $w/phones.lis $lg/mono_4_2.log");
+&run	("ReEstimateStateCount $m/mono_4_2.mmf $m/mono_4_3.mmf $d/reest.cfg " . 
+     	 "$w/train_32_2.scp $w/align_32_2.mlf rec $w/state_mono_4_3.cnt $w/phones.lis $lg/mono_4_3.log");
+
+
+&monomixup (8,"$m/mono_4_3.mmf","$m/mono_8_0.mmf");
+&run	("ReEstimate $m/mono_8_0.mmf $m/mono_8_1.mmf $d/reest.cfg " . 
+     	 "$w/train_32_2.scp $w/align_32_2.mlf rec $w/phones.lis $lg/mono_8_1.log");
+&run	("ReEstimateStateCount $m/mono_8_1.mmf $m/mono_8_2.mmf $d/reest.cfg " . 
+     	 "$w/train_32_2.scp $w/align_32_2.mlf rec $w/state_mono_8_2.cnt $w/phones.lis $lg/mono_8_2.log");
+&run	("ReEstimateStateCount $m/mono_8_2.mmf $m/mono_8_3.mmf $d/reest.cfg " . 
+     	 "$w/train_32_2.scp $w/align_32_2.mlf rec $w/state_mono_8_3.cnt $w/phones.lis $lg/mono_8_3.log");
+
+
+&monomixup (16,"$m/mono_8_2.mmf","$m/mono_16_0.mmf");
+&run	("ReEstimate $m/mono_16_0.mmf $m/mono_16_1.mmf $d/reest.cfg " . 
+     	 "$w/train_32_2.scp $w/align_32_2.mlf rec $w/phones.lis $lg/mono_16_1.log");
+&run	("ReEstimateStateCount $m/mono_16_1.mmf $m/mono_16_2.mmf $d/reest.cfg " . 
+     	 "$w/train_32_2.scp $w/align_32_2.mlf rec $w/state_mono_16_2.cnt $w/phones.lis $lg/mono_16_2.log");
+&run	("ReEstimateStateCount $m/mono_16_2.mmf $m/mono_16_3.mmf $d/reest.cfg " . 
+     	 "$w/train_32_2.scp $w/align_32_2.mlf rec $w/state_mono_16_3.cnt $w/phones.lis $lg/mono_16_3.log");
+
+
+&monomixup (32,"$m/mono_16_2.mmf","$m/mono_32_0.mmf");
+&run	("ReEstimate $m/mono_32_0.mmf $m/mono_32_1.mmf $d/reest.cfg " . 
+     	 "$w/train_32_2.scp $w/align_32_2.mlf rec $w/phones.lis $lg/mono_32_1.log");
+&run	("ReEstimateStateCount $m/mono_32_1.mmf $m/mono_32_2.mmf $d/reest.cfg " . 
+     	 "$w/train_32_2.scp $w/align_32_2.mlf rec $w/state_mono_32_2.cnt $w/phones.lis $lg/mono_32_2.log");
+&run	("ReEstimateStateCount $m/mono_32_2.mmf $m/mono_32_3.mmf $d/reest.cfg " . 
+     	 "$w/train_32_2.scp $w/align_32_2.mlf rec $w/state_mono_32_3.cnt $w/phones.lis $lg/mono_32_3.log");
+
+
+
+
+print "HMMtrain-dspbee finished ",`date`;
+
+
+#-------------------------------------------
+#  sub routines   --------------------------
+#-------------------------------------------
+sub monomixup {
+    local($nmix,$sourcehmm,$targethmm) = @_;
+    &printfile("$w/mix${nmix}.hed", "MU $nmix {*.state[2-4].mix}");
+    print " ...updating to $nmix mixtures in $targethmm\n";
+    &run ("HHEd -H $sourcehmm -w $targethmm $w/mix${nmix}.hed ".
+	  "$w/phones.lis");
+    print " ...finished ".`date`;
+}
+
+sub tiedmixup {
+    local($nmix,$sourcehmm,$targethmm,$logfile) = @_;
+    &printfile("$w/mix${nmix}.hed", "MU $nmix {*.state[2-4].mix}");
+    print " ...updating to $nmix mixtures in $targethmm\n";
+    &run ("HHEd -H $sourcehmm -w $targethmm $w/mix${nmix}.hed ".
+	  "$w/tied.lis > $logfile");
+    print " ...finished ".`date`;
+}
+

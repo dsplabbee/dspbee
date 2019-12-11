@@ -1,0 +1,34 @@
+#! /usr/bin/env perl
+###########################################################################
+# $Id: DictHtk2sampa,v 1.2 2000/02/28 14:42:04 ftj Exp $
+#
+# DictHtk2sampa
+#
+# Convert HTK dictionary from SAMPA to HTKSAMPA
+#
+# Usage: DictHtk2sampa inputdictionary > outputdictionary
+#
+# Unchanged in Masper - MonoTrain
+#
+#
+# $Log: DictHtk2sampa,v $
+# Revision 1.2  2000/02/28 14:42:04  ftj
+# Changed trntools to tools
+#
+#
+###########################################################################
+
+require("../tools/common.pl");
+
+while (<>){
+    chop;
+    @tmp = split(' ',$_);
+    $word = $tmp[0];
+    print "$word\t";
+
+    for ($i=1; $i<=$#tmp; $i++){
+	print &sampa2htk($tmp[$i]);
+	print " " unless ($i == $#tmp);
+    }
+    print "\n";
+}

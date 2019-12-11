@@ -1,0 +1,27 @@
+#! /usr/bin/env perl
+###############################################################################
+# RemoveLines
+#
+# Usage: RemoveLines removefile inputfile > outputfile
+#
+# Remove lines from inputfile that are present in removefile 
+#
+# Unchanged in Masper - MonoTrain
+#
+#
+# Version: 1.0  08.07.98  Finn Tore Johansen
+#
+###############################################################################
+
+$list = shift(@ARGV);
+
+# first read lines to remove
+open(FILE,$list) || die "Can't open $list\n";
+while (<FILE>) {
+    $remove{$_} = 1;
+}
+
+# then filter input file
+while (<>) {
+    print unless $remove{$_};
+}

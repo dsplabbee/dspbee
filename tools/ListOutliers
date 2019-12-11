@@ -1,0 +1,25 @@
+#! /usr/bin/env perl
+###############################################################################
+#
+# ListOutliers
+#
+# Usage: ListOutLiers hvitelog > outlierlist
+#
+# Generate a list of files that failed in HVite alignment 
+#
+# Unchanged in Masper - MonoTrain
+#
+# 
+# Version 1.1  12.01.99  Finn Tore Johansen
+#
+###############################################################################
+
+while (<>) {
+   next if /WARNING/;
+   if (/^No tokens/) {
+      $buf2 =~ /Aligning File: (.+)$/;
+      print "$1\n";
+   }
+   $buf2 = $buf1;
+   $buf1 = $_;
+}

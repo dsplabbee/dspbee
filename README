@@ -1,0 +1,9 @@
+HMMtrain-dspbee, v.0.1 2019/7/10
+
+Models training for bee swarm/normal classification from audio input. The Perl HMM training procedure is using HTK toolkit and is based on HLT ASR Masper and refrec scripts.
+
+Prerequisites:
+- HTK toolkit
+- feature files converted from audio files (e.g. audio dataset https://www.osbeehives.com)
+- training set script file (HTK format)
+- label file (HTK format)

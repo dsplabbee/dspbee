@@ -1,0 +1,53 @@
+#! /usr/bin/env perl
+###########################################################################
+#
+# GenProto
+#
+# Generate identical HMMs with different names
+#
+# Usage: GenProto phonelist inputhmm outputdir
+#
+# Unchanged in Masper - MonoTrain
+#
+#
+# Version 1.1  15.09.99  Borge Lindberg
+# Version 1.0  07.08.98  Finn Tore Johansen
+#
+###########################################################################
+
+$phnfn = shift(@ARGV);
+$profn = shift(@ARGV);
+$hmmdir = shift(@ARGV);
+
+# first read phoneme list
+
+open(FILE,$phnfn) || die "Could not open $phnfn\n";
+while (<FILE>){
+    chop;
+    $isphone{$_} = 1;
+}
+close(FILE);
+
+
+# then read prototype hmm definition file
+
+@hmmdef = ();
+open(FILE,$profn) || die "Could not open $profn\n";
+while (<FILE>){
+  push(@hmmdef,$_);
+}
+close(FILE);
+
+foreach $phn (sort keys(%isphone)) {
+  open (FILE, ">$hmmdir/$phn");
+  foreach $line (@hmmdef){
+    if ($line =~ /~h \"proto\"/) {
+      print FILE "~h \"$phn\"\n";
+    }
+    else {
+      print FILE $line;
+    }
+  }
+  close(FILE);
+}
+

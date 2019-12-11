@@ -1,0 +1,28 @@
+#! /usr/bin/env perl
+###########################################################################
+#
+# AddSilence
+#
+# Add silence and tee models to HTK dictionary file
+# (Could not use HDMan due to bug)
+#
+# Usage: AddSilence inputdictionary > outputdictionary
+#
+# Unchanged in Masper - MonoTrain
+#
+#
+# Version 1.0  03.07.98  Finn Tore Johansen
+#
+###########################################################################
+
+print "<sil>\t[] sil\n";  # silence word "<sil>"
+while (<>){
+    chop;
+    @tmp = split(' ',$_);
+    $word = $tmp[0];
+    print "$word\t";
+    for ($i=1; $i<=$#tmp; $i++){
+	print "$tmp[$i] ";
+    }
+    print "sp\n";        # final tee model "sp"
+}

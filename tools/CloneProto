@@ -1,0 +1,61 @@
+#! /usr/bin/env perl
+###########################################################################
+#
+# CloneProto
+#
+# Create identical copies of prototype HMM, with different names
+#
+# Usage: CloneProto phonelist inputhmm > outputhmm
+#
+# Unchanged in Masper - MonoTrain
+#
+#
+# Version 1.0  07.08.98  Finn Tore Johansen
+#
+###########################################################################
+
+$phnfn = shift(@ARGV);
+
+# first read phoneme list
+
+open(FILE,$phnfn) || die "Could not open $phnfn\n";
+while (<FILE>){
+    chop;
+    $isphone{$_} = 1;
+}
+close(FILE);
+
+
+# then filter prototype hmm definition file
+
+$inside = 0;
+@hmmdef = ();
+while (<>){
+
+    if (/~h \"proto\"/) { # start of hmm
+	$inside = 1;
+	next;
+    }
+
+    if (/ENDHMM/) {       # end of hmm, print one copy for each phoneme
+	push(@hmmdef,$_);
+	foreach $phn (sort keys(%isphone)) {
+	    print "~h \"$phn\"\n";
+	    foreach $line (@hmmdef){
+		print $line;
+	    }
+	}
+
+	$inside = 0;
+	next;
+    }
+
+    if ($inside) {        # inside hmm, save lines
+	push(@hmmdef,$_);
+	next;
+    }
+
+    print; # outside hmm, just copy to output 
+}
+
+

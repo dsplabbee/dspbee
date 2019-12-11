@@ -1,0 +1,43 @@
+#! /usr/bin/env perl
+###########################################################################
+#
+# DictMapPhone
+#
+# Replace phonemes in HTK format dictionary according to mapping table file
+#
+# Usage: DictMapPhone mapfile inputdictionary > outputdictionary
+#
+# Unchanged in Masper - MonoTrain
+#
+#
+# Version 1.0  25.11.98  Finn Tore Johansen
+#
+###########################################################################
+
+$mapf = shift(@ARGV);
+
+unless (open(FILE,$mapf)) {
+  print "Could not find or open map file $mapf\n";
+  exit;
+}
+while (<FILE>) {
+  s/\r\n$//; # DOS CR/LF
+  s/\n$//;   # Unix LF
+  @tmp = split(' ',$_);
+  $source = shift(@tmp);
+  $map{$source} = join(' ',@tmp);
+}
+close(FILE);
+
+while (<>){
+  chop;
+  @tmp = split(' ',$_);
+  $word = shift(@tmp);
+  $pron = "";
+  foreach $phn (@tmp){
+    $phn = $map{$phn} if $map{$phn};
+    $pron .= "$phn ";      
+  }
+  $pron =~ s/ $//;
+  print "$word\t$pron\n";
+}

@@ -1,0 +1,72 @@
+#! /usr/bin/env perl
+###########################################################################
+#
+# AddTeeModel
+#
+# Create tee model from center state of "sil"
+#
+# Usage: AddTeeModel inputhmm > outputhmm
+#
+# Unchanged in Masper - MonoTrain
+#
+#
+# Version 1.0  08.07.98  Finn Tore Johansen
+#
+###########################################################################
+
+
+# Scan input file for silence model, copy everything to output
+
+$inside = 0;
+@sildef = ();
+while (<>){
+    print;
+    if (/~h \"sil\"/) {             # start of silence model
+	$inside = 1;
+	push(@sildef,$_);
+    } elsif ($inside && /ENDHMM/) { # end of silence model
+	$inside = 0;
+	push(@sildef,$_);
+    } elsif ($inside) {             # inside silence, just save lines
+	push(@sildef,$_);
+    }
+}
+
+
+# Find mean and variance vectors for silence model state 2
+
+for ($i=0; !($sildef[$i] =~ /<STATE> 2/); $i++) {}
+$istate3 = $i;
+for ($i=$istate3; !($sildef[$i] =~ /<MEAN>/); $i++) {}
+$imean = $i;
+for ($i=$istate3; !($sildef[$i] =~ /<VARIANCE>/); $i++) {}
+$ivariance = $i;
+
+
+# Find transition probabilities for silence model state 2
+
+for ($i=0; !($sildef[$i] =~ /<TRANSP>/); $i++) {}
+@probs = split(' ',$sildef[$i+3]);
+$prob1 = @probs[2];  # self transition
+$prob2 = 1 - $prob1; # output transition
+
+
+# Print tee model
+
+print "~h \"sp\"\n";
+print "<BEGINHMM>\n";
+print "<NUMSTATES> 3\n";
+print "<STATE> 2\n";
+print $sildef[$imean];
+print $sildef[$imean+1];
+print $sildef[$ivariance];
+print $sildef[$ivariance+1];
+print "<TRANSP> 3\n";
+$fmt = " %e %e %e\n";
+printf($fmt,0,1,0);
+printf($fmt,0,$prob1,$prob2);
+printf($fmt,0,0,0);
+print "<ENDHMM>\n";
+
+
+

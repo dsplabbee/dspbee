@@ -1,0 +1,29 @@
+#! /usr/bin/env perl
+###########################################################################
+#
+# ListPhonemes
+#
+# Create a list of phoneme symbols used in HTK dictionary
+#
+# Usage: Sampa2htk inputdictionary > phonemelist
+#
+# Unchanged in Masper - MonoTrain
+#
+#
+# Version 1.0  08.07.98  Finn Tore Johansen
+#
+###########################################################################
+
+%count = ();
+while (<>){
+    chop;
+    @tmp = split(' ',$_);
+    $word = shift(@tmp);
+    foreach $phn (@tmp){
+	$count{$phn}++;
+    }
+}
+
+foreach $phn (sort keys(%count)) {
+    print "$phn\n";
+}

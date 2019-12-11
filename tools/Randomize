@@ -1,0 +1,22 @@
+#! /usr/bin/env perl
+###############################################################################
+#
+# Randomize 
+#
+# Permutate lines randomly, but reproducable
+#
+# Unchanged in Masper - MonoTrain
+#
+#
+# Version 1.0  14.07.98  Finn Tore Johansen
+#
+###############################################################################
+
+srand(1); # use fixed seed to reproduce random sequence
+@lines = <>;
+while (@lines) {
+    print splice(@lines, rand @lines, 1);
+}
+
+
+

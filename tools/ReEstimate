@@ -1,0 +1,32 @@
+#!/usr/bin/perl
+
+die "Wrong number of arguments (8 expected). Stopped" unless ($#ARGV == 7);
+$sourcehmm = shift(@ARGV);
+$targethmm = shift(@ARGV);
+$cfgfile   = shift(@ARGV);
+$scpfile   = shift(@ARGV);
+$alignfile = shift(@ARGV);
+$labext	   = shift(@ARGV);
+$modellist = shift(@ARGV);
+$logfile   = shift(@ARGV);
+
+###########################################################################
+
+$| = 1; # avoid multiple copies of log messages
+
+
+&run ("cp $sourcehmm $targethmm");
+
+print " ...reestimating to $targethmm ",`date`;
+&run ("HERest -C $cfgfile -I $alignfile -X $labext -t 250.0 150.0 1000.0 ".
+	  "-S $scpfile -H $targethmm $modellist > $logfile");
+
+print " ...finished ",`date`;
+
+###########################################################################
+
+sub run { # run unix shell command with error check
+  local($cmd) = @_;
+  die "Unix command failed:\n $cmd\n" if system "$cmd";
+}
+
